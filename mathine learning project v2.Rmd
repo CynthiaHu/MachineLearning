@@ -1,0 +1,147 @@
+---
+title: "Mathine Learning Project"
+output: html_document
+---
+
+### Executive Summary
+6 participants are asked to perform barbell lifts in 5 different ways.Data are collected from accelerometers on the belt, forearm, arm, and dumbell by devices and used to predict the manner participants did the exercise. After clean the data, several models are fit on the training data set, such as boosting, decision tree and random forecast. Then these models' accuracy are evaluated on the testing data sets. Next, random forecast with 3 fold cross validation is chosen which has the highest accuracy 98.7% on the testing data set. Further the chosen model is evaluated on the validation data set to get the out-of-sample error which is 1.43%. Finnally, this model is applied to 20 test cases and got all answers correct.
+
+
+### Load the Data
+Load the data from the website and check the dimensions of both data sets.
+```{r,results='hide'}
+library(ggplot2)
+library(caret)
+library(gbm)
+training <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv",na.strings = c("NA", "", "#DIV/0!"))
+testing <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv",na.strings = c("NA", "", "#DIV/0!"))
+dim(training)
+dim(testing)
+```
+
+
+### Split the Data
+Split the original training data set into three parts: training (45%), testing (30%) and validation (25%). Validation data set is set aside for the final model evaluation, independent of the model building and tuning process; the training data set is used to fit the inital models and the testing data set is used to tune the model and select the best model.
+
+```{r}
+inTrain <- createDataPartition(y=training$classe,p=0.75,list=FALSE)
+validations <- training[-inTrain,]
+training2 <- training[inTrain,]
+inTrain2 <- createDataPartition(y=training2$classe,p=0.6,list=FALSE)
+training3 <- training2[inTrain2,]
+testing2 <- training2[-inTrain2,]
+dim(validations)
+dim(training3)
+dim(testing2)
+```
+
+
+### Explore and Clean the Data
+Look at the summary of the data, pay attention to NA and zeros.
+```{r,results='hide'}
+summary(training3)
+```
+
+Next, remove book-keeping columns which are not related to prediciton, such as user names and time stamp. Also, remove the summary columns which have blanks or NA for subject data.
+```{r}
+training4 <- training3[,c(8:10,37:48,60:68,84:86,113:124,151:160)]
+dim(training4)
+```
+```{r,results='hide'}
+summary(training4)
+```
+
+Thus, the number of columns was reduced from 160 to 49 for the initial modeling.
+
+We can also look at plots to explore the relationship among variables.
+```{r,echo=FALSE}
+qplot(roll_belt,pitch_belt,colour=classe,data=training4,main="roll belt and pitch belt by classe")
+qplot(roll_belt,yaw_belt,colour=classe,data=training4,main="roll belt and yaw belt by classe")
+```
+From the plots above, roll_belt, pitch_belt and yaw_belt are potentiall good classifiers.
+
+### Initial Modeling 
+Fit several models,namely,boosting (GBM), decision tree and random forecast. Use 3 fold in the train control option for cross validation. This cross validation is the train option and used to tuning the models.
+
+```{r}
+set.seed(23422)
+tc <- trainControl(method="cv", number=3,allowParallel = TRUE)
+```
+```{r,results='hide'}
+# enable multi-core processing
+library(doParallel)
+cl <- makeCluster(detectCores())
+registerDoParallel(cl)
+```
+```{r}
+modelGBM <- train(classe ~ ., data=training4,method="gbm",verbose=FALSE)
+finGBM <- modelGBM$finalModel
+print(modelGBM)
+
+modelTR <- train(classe ~ ., data=training4,method="rpart")
+finTR <- modelTR$finalModel
+print(modelTR)
+
+modelRF <- train(classe ~ ., data=training4,method="rf",trainControl=tc)
+finRF <- modelRF$finalModel
+print(modelRF)
+```
+
+Next, check the importance of variables of the models above. Below is the important variable list from the random forecast model
+```{r,results='hide'}
+varImp(modelGBM, useModel = TRUE, nonpara = TRUE, scale = TRUE)
+varImp(modelTR, useModel = TRUE, nonpara = TRUE, scale = TRUE)
+```
+```{r}
+varImp(modelRF, useModel = TRUE, nonpara = TRUE, scale = TRUE)
+```
+
+
+### Compare Models
+Compare models on the testing dataset and choose the best one. This testing dataset is used to estimate the out-of-sample error.
+
+```{r}
+predGBM <- predict(modelGBM,newdata=testing2)
+confusionMatrix(predGBM,testing2$classe)
+```
+```{r}
+predTR <- predict(modelTR,newdata=testing2)
+confusionMatrix(predTR,testing2$classe)
+```
+```{r}
+predRF <- predict(modelRF,newdata=testing2)
+confusionMatrix(predRF,testing2$classe)
+```
+
+The decision tree has the lowest accuracy rate 55.34%; the random forecast model has the highest accuracy rate 98.73% and the boosting model (GBM) has the second highest accuracy rate 95.33%. Therefore, the random forecast model is chosed for final evaluation and predict the 20 test cases.
+
+
+### Validation and Out-of-sample Error
+Apply the random forecast model to the validation data set to get the out-of-sample error which is 1.43%.
+
+```{r}
+predRF2 <- predict(modelRF,newdata=validations)
+confusionMatrix(predRF2,validations$classe)
+```
+
+
+### Submission
+Apply best model to 20 test cases to get score.
+
+```{r}
+answers <- predict(modelRF,newdata=testing)
+answers
+
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+pml_write_files(answers)
+```
+
+
+### Reference
+The data for this project come from http://groupware.les.inf.puc-rio.br/har.
